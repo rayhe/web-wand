@@ -120,7 +120,8 @@ export function parsePacket(bytes) {
       const kind = data[1];
       const text = () => new TextDecoder('ascii').decode(data.subarray(2)).replace(/\0/g, '');
       if (kind === 0x01 && data.length >= 6) return { type: 'serial', serial: String(view.getUint32(2, true)) };
-      if (kind === 0x02) return { type: 'sku', sku: text() };
+      if (kind === 0x02) return { type: 'sku', sku: text() }; // the retail barcode (UPC)
+      if (kind === 0x03) return { type: 'part', part: text() };
       if (kind === 0x04) {
         const id = text();
         return { type: 'deviceId', deviceId: id, wandType: WAND_TYPES[id.slice(0, -1).slice(-2)] || 'Unknown' };
@@ -180,7 +181,8 @@ export class Macro {
  * Events (CustomEvent, data in e.detail):
  *   connect {name}, disconnect {expected}, waiting {name}  — auto-connect is watching for the wand,
  *   spell {name}, buttons {pressed[4], all, mask},
- *   imu {samples[{gyro[3], accel[3]}]}, battery {level, state}, info {firmware?, deviceId?, wandType?, serial?, sku?},
+ *   imu {samples[{gyro[3], accel[3]}]}, battery {level, state},
+ *   info {firmware?, deviceId?, wandType?, serial?, sku? (barcode), part?, boxAddress?},
  *   thresholds {values[8]}  — grip sensitivity as read back from the wand,
  *   packet {bytes, parsed}  — every raw notification, for debugging
  */
@@ -341,6 +343,9 @@ export class MagicCasterWand extends EventTarget {
     await this.send([CMD.FIRMWARE_VERSION_READ]);
     await this.send([CMD.PRODUCT_INFO_READ, 0x04]);
     await this.send([CMD.PRODUCT_INFO_READ, 0x01]);
+    await this.send([CMD.PRODUCT_INFO_READ, 0x02]);
+    await this.send([CMD.PRODUCT_INFO_READ, 0x03]);
+    await this.send([CMD.BOX_ADDRESS_READ]);
     // Grip sensitivity is only written when asked for: writing values the wand
     // doesn't expect can stop the grip buttons from reporting at all.
     if (this.buttonSensitivity) await this.setButtonSensitivity(this.buttonSensitivity);
@@ -475,6 +480,9 @@ export class MagicCasterWand extends EventTarget {
         break;
       case 'sku':
         this._info({ sku: parsed.sku });
+        break;
+      case 'part':
+        this._info({ part: parsed.part });
         break;
       case 'threshold':
         if (parsed.index < 8) {

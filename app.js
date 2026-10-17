@@ -142,7 +142,7 @@ $('#demo').addEventListener('click', () => {
   $('#demo').textContent = 'Stop demo';
   setStatus('Demo mode', 'demo');
   $('#imu').checked = true;
-  setInfo({ name: 'MCW-DEMO', wandType: 'Honourable', firmware: '0.3', serial: '12345678' });
+  setInfo({ name: 'MCW-DEMO', wandType: 'Honourable', firmware: '0.3', serial: '12345678', part: 'DEMO-PART', sku: '000000000000', boxAddress: '00:00:00:00:00:00' });
   refreshControls();
 });
 

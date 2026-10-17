@@ -60,3 +60,12 @@ test('battery state thresholds', () => {
 test('grip threshold read-back', () => {
   assert.deepEqual(parsePacket([0xdd, 2, 7]), { type: 'threshold', index: 2, value: 7 });
 });
+
+test('product info: barcode, part number and box address (real wand replies)', () => {
+  const hex = (h) => h.split(' ').map((b) => parseInt(b, 16));
+  assert.deepEqual(parsePacket(hex('0e 02 38 38 33 39 32 39 38 30 30 31 36 32')), { type: 'sku', sku: '883929800162' });
+  assert.deepEqual(parsePacket(hex('0e 03 37 35 31 32 30 54 45 57 36 2d 31 30 30 2d 41')), { type: 'part', part: '75120TEW6-100-A' });
+  assert.deepEqual(parsePacket(hex('0e 01 4e bd 93 03')), { type: 'serial', serial: '60013902' });
+  assert.deepEqual(parsePacket(hex('09 2e 47 59 05 f8 da')), { type: 'boxAddress', address: 'DA:F8:05:59:47:2E' });
+  assert.equal(parsePacket(hex('0e 04 57 42 4d 43 32 32 47 31 53 4c 59 57')).wandType, 'Loyal');
+});
