@@ -1,0 +1,115 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Web Wand</title>
+  <meta name="description" content="Connect a Harry Potter: Magic Caster Wand to your browser over Web Bluetooth and read its spells, buttons and motion.">
+  <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>🪄</text></svg>">
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+  <header class="bar">
+    <div class="brand">
+      <span class="logo" aria-hidden="true">🪄</span>
+      <div>
+        <h1>Web Wand</h1>
+        <p class="sub">Magic Caster Wand × Web Bluetooth</p>
+      </div>
+    </div>
+    <div class="status">
+      <span id="battery" class="pill" hidden></span>
+      <span id="status" class="pill" data-state="idle">Not connected</span>
+      <button id="demo" class="ghost" type="button">Try demo</button>
+      <button id="connect" class="primary" type="button">Connect wand</button>
+    </div>
+  </header>
+
+  <div id="unsupported" class="notice" hidden>
+    This browser can't use Bluetooth. Open this page in <strong>Chrome</strong> or <strong>Edge</strong>
+    on Windows, macOS, ChromeOS, Linux or Android. Safari and Firefox don't support Web Bluetooth yet.
+    You can still click <em>Try demo</em> to see how it works.
+  </div>
+
+  <main class="grid">
+    <section class="card spell-card" aria-live="polite">
+      <h2>Last spell</h2>
+      <div id="spell" class="spell">Cast a spell…</div>
+      <p class="hint">Hold the wand by its grip, then draw the spell's shape. The wand recognizes the spell itself and reports its name.</p>
+      <label class="check"><input id="react" type="checkbox" checked> Light up and buzz the wand when a spell is cast</label>
+      <ol id="history" class="history"></ol>
+    </section>
+
+    <section class="card">
+      <h2>Grip buttons</h2>
+      <div class="buttons" id="buttons">
+        <span class="btn-dot" data-i="0">1</span>
+        <span class="btn-dot" data-i="1">2</span>
+        <span class="btn-dot" data-i="2">3</span>
+        <span class="btn-dot" data-i="3">4</span>
+      </div>
+      <p class="hint" id="button-hint">Squeeze the grip. All four together means "casting".</p>
+
+      <h2>Wand info</h2>
+      <dl class="info" id="info">
+        <dt>Name</dt><dd data-k="name">—</dd>
+        <dt>Type</dt><dd data-k="wandType">—</dd>
+        <dt>Firmware</dt><dd data-k="firmware">—</dd>
+        <dt>Serial</dt><dd data-k="serial">—</dd>
+      </dl>
+    </section>
+
+    <section class="card motion">
+      <div class="row">
+        <h2>Motion</h2>
+        <label class="check"><input id="imu" type="checkbox"> Stream motion</label>
+        <label class="check"><input id="trace-always" type="checkbox"> Trace without the grip</label>
+        <button id="clear-trail" class="ghost small" type="button">Clear</button>
+      </div>
+      <canvas id="trail" width="640" height="360" aria-label="Path of the wand tip"></canvas>
+      <div class="meters">
+        <div><span class="lbl">Gyro (rad/s)</span><span id="gyro" class="mono">— — —</span></div>
+        <div><span class="lbl">Accel (g)</span><span id="accel" class="mono">— — —</span></div>
+        <div><span class="lbl">Samples</span><span id="rate" class="mono">0 /s</span></div>
+      </div>
+      <p class="hint">When motion streaming is on, holding all four grip buttons traces the tip's path. The path is estimated from the gyroscope, so it drifts a little.</p>
+    </section>
+
+    <section class="card">
+      <h2>Lights</h2>
+      <div class="leds">
+        <label>Tip <input type="color" data-group="0" value="#ffffff"></label>
+        <label>Upper <input type="color" data-group="1" value="#66aaff"></label>
+        <label>Lower <input type="color" data-group="2" value="#aa66ff"></label>
+        <label>Handle <input type="color" data-group="3" value="#ffaa33"></label>
+      </div>
+      <div class="row wrap">
+        <button id="leds-on" type="button">Set lights</button>
+        <button id="leds-off" class="ghost" type="button">Lights off</button>
+        <button id="buzz" class="ghost" type="button">Buzz</button>
+      </div>
+      <h2>Effects</h2>
+      <div class="row wrap">
+        <select id="effect" aria-label="Effect"></select>
+        <button id="play" type="button">Play on wand</button>
+      </div>
+    </section>
+
+    <section class="card log-card">
+      <details>
+        <summary>Raw packets</summary>
+        <label class="check"><input id="log-imu" type="checkbox"> Include motion packets</label>
+        <pre id="log" class="log"></pre>
+      </details>
+    </section>
+  </main>
+
+  <footer>
+    <p>An unofficial fan project, not affiliated with Warner Bros. or Wizarding World.
+      Protocol thanks to <a href="https://github.com/eigger/hass-magic-caster-wand">hass-magic-caster-wand</a>.
+      <a href="https://github.com/rayhe/web-wand">Source on GitHub</a>.</p>
+  </footer>
+
+  <script type="module" src="app.js"></script>
+</body>
+</html>

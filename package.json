@@ -1,0 +1,7 @@
+{
+  "name": "web-wand",
+  "private": true,
+  "type": "module",
+  "license": "MIT",
+  "scripts": { "test": "node --test test/" }
+}
