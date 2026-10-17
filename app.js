@@ -108,7 +108,11 @@ $('#connect').addEventListener('click', async () => {
     await wand.connect();
   } catch (err) {
     // The user closing the picker is not an error worth shouting about.
-    if (err.name === 'NotFoundError') setStatus('Not connected', 'idle');
+    if (err.name === 'NotFoundError') {
+      // Picker closed, often because nothing showed up: a sleeping wand doesn't advertise.
+      setStatus('Not connected', 'idle');
+      $('#wake-hint').hidden = false;
+    }
     else { setStatus('Connection failed', 'error'); log(`! ${err.message}`); }
     refreshControls();
     autoConnect();
@@ -160,6 +164,7 @@ wand.addEventListener('waiting', (e) => {
 
 wand.addEventListener('connect', (e) => {
   inOtherTab = false;
+  $('#wake-hint').hidden = true;
   tabs?.postMessage({ type: 'connected' });
   setStatus('Connected', 'connected');
   setInfo({ name: e.detail.name });
