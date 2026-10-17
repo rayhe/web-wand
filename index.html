@@ -66,15 +66,46 @@
         <h2>Motion</h2>
         <label class="check"><input id="imu" type="checkbox"> Stream motion</label>
         <label class="check"><input id="trace-always" type="checkbox"> Trace without the grip</label>
-        <button id="clear-trail" class="ghost small" type="button">Clear</button>
       </div>
-      <canvas id="trail" width="640" height="360" aria-label="Path of the wand tip"></canvas>
+      <div class="row toolbar">
+        <button id="recenter" class="ghost small" type="button" title="Make the way the wand points now count as straight ahead">Recenter</button>
+        <button id="align-toggle" class="ghost small" type="button" aria-expanded="false" aria-controls="align">Align axes</button>
+        <button id="reset-view" class="ghost small" type="button">Reset 3D view</button>
+        <button id="clear-trail" class="ghost small" type="button">Clear path</button>
+        <span id="align-summary" class="hint"></span>
+      </div>
+
+      <div id="align" class="align" hidden>
+        <p>The motion sensor can sit any way round inside the wand. Teach the page which way is which, so the model turns the same way your wand does.</p>
+        <ol>
+          <li>Hold the wand still, <strong>pointing straight up</strong>. <button id="capture-tip" class="small" type="button">Capture</button></li>
+          <li>Hold it still and <strong>level, pointing away from you, with the grip buttons facing up</strong>. <button id="capture-up" class="small" type="button">Capture</button></li>
+        </ol>
+        <div class="row">
+          <label>Tip axis <select id="axis-tip"></select></label>
+          <label>Top axis <select id="axis-up"></select></label>
+          <button id="axis-reset" class="ghost small" type="button">Reset</button>
+        </div>
+        <p id="align-msg" class="hint" aria-live="polite"></p>
+      </div>
+
+      <div class="motion-views">
+        <figure class="view">
+          <div id="wand3d" class="stage" aria-label="3D model of the wand's orientation"></div>
+          <figcaption>Wand orientation · drag to look around</figcaption>
+        </figure>
+        <figure class="view">
+          <canvas id="trail" class="stage" aria-label="Path of the wand tip"></canvas>
+          <figcaption id="trail-caption">Tip path</figcaption>
+        </figure>
+      </div>
       <div class="meters">
+        <div><span class="lbl">Heading / elevation / roll</span><span id="attitude" class="mono">—</span></div>
         <div><span class="lbl">Gyro (rad/s)</span><span id="gyro" class="mono">— — —</span></div>
         <div><span class="lbl">Accel (g)</span><span id="accel" class="mono">— — —</span></div>
         <div><span class="lbl">Samples</span><span id="rate" class="mono">0 /s</span></div>
       </div>
-      <p class="hint">When motion streaming is on, holding all four grip buttons traces the tip's path. The path is estimated from the gyroscope, so it drifts a little.</p>
+      <p class="hint">Hold all four grip buttons to trace a cast. Heading slowly drifts because the wand has no compass; press <em>Recenter</em> to point "ahead" again.</p>
     </section>
 
     <section class="card">
@@ -112,6 +143,14 @@
       <a href="https://github.com/rayhe/web-wand">Source on GitHub</a>.</p>
   </footer>
 
+  <script type="importmap">
+    {
+      "imports": {
+        "three": "https://cdn.jsdelivr.net/npm/three@0.160.0/build/three.module.js",
+        "three/addons/": "https://cdn.jsdelivr.net/npm/three@0.160.0/examples/jsm/"
+      }
+    }
+  </script>
   <script type="module" src="app.js"></script>
 </body>
 </html>

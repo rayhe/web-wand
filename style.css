@@ -124,7 +124,18 @@ button:focus-visible, select:focus-visible, input:focus-visible { outline: 2px s
 .row h2 { margin: 0 auto 0 0; }
 .row.wrap { margin-top: 10px; }
 
-#trail { width: 100%; height: auto; aspect-ratio: 16 / 9; background: var(--trail-bg); border: 1px solid var(--line); border-radius: 10px; display: block; }
+.toolbar { gap: 6px; }
+.motion-views { display: grid; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); gap: 12px; }
+.view { margin: 0; min-width: 0; }
+.view figcaption { font-size: 0.8rem; color: var(--muted); margin-top: 4px; }
+.stage { width: 100%; aspect-ratio: 4 / 3; background: var(--trail-bg); border: 1px solid var(--line); border-radius: 10px; display: block; overflow: hidden; }
+#wand3d canvas { width: 100% !important; height: 100% !important; display: block; touch-action: none; }
+#wand3d.unavailable { display: grid; place-items: center; color: var(--muted); font-size: 0.9rem; padding: 16px; text-align: center; }
+.align { border: 1px solid var(--line); border-radius: 10px; padding: 10px 14px; margin-bottom: 12px; background: var(--trail-bg); }
+.align p { margin: 4px 0; }
+.align ol { margin: 6px 0; padding-left: 1.3rem; }
+.align li { margin: 6px 0; }
+.align label { display: inline-flex; gap: 6px; align-items: center; font-size: 0.9rem; }
 .meters { display: flex; flex-wrap: wrap; gap: 8px 24px; margin-top: 10px; }
 .meters > div { display: flex; flex-direction: column; }
 .lbl { font-size: 0.75rem; color: var(--muted); }

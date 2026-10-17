@@ -1,5 +1,7 @@
 import { MagicCasterWand, Macro, LED } from './wand.js';
 import { startDemo } from './demo.js';
+import { setupMotion } from './motion.js';
+import { applyMatrix, transpose } from './orientation.js';
 
 const $ = (sel) => document.querySelector(sel);
 const wand = new MagicCasterWand();
@@ -89,7 +91,9 @@ $('#forget').addEventListener('click', async () => {
 $('#demo').addEventListener('click', () => {
   if (demo) return stopDemo();
   wand.disconnect();
-  demo = startDemo(wand);
+  motion.reset();
+  // The demo speaks in body axes; convert to raw so the current alignment maps it back.
+  demo = startDemo(wand, { toRaw: (v) => applyMatrix(transpose(motion.matrix), v) });
   $('#demo').textContent = 'Stop demo';
   setStatus('Demo mode', 'demo');
   $('#imu').checked = true;
@@ -174,36 +178,17 @@ wand.addEventListener('spell', (e) => {
 
 // ---------- Buttons ----------
 
-let casting = false;
-
 function showButtons(pressed, all) {
   document.querySelectorAll('.btn-dot').forEach((dot, i) => dot.classList.toggle('on', pressed[i]));
   $('#buttons').classList.toggle('all', all);
+  motion.onButtons(pressed, all);
 }
 
-wand.addEventListener('buttons', (e) => {
-  const { pressed, all } = e.detail;
-  showButtons(pressed, all);
-  if (all && !casting) startStroke();
-  casting = all;
-});
+wand.addEventListener('buttons', (e) => showButtons(e.detail.pressed, e.detail.all));
 
-// ---------- Motion + trail ----------
+// ---------- Motion ----------
 
-const canvas = $('#trail');
-const ctx = canvas.getContext('2d');
-let strokes = [];
-let pen = { x: 0, y: 0 };
-let lastImuAt = 0;
-let sampleCount = 0;
-
-function startStroke() {
-  pen = { x: 0, y: 0 };
-  strokes.push([{ ...pen }]);
-  if (strokes.length > 6) strokes.shift();
-}
-
-$('#clear-trail').addEventListener('click', () => { strokes = []; draw(); });
+const motion = setupMotion({ wand, log: (line) => log(line), $ });
 
 $('#imu').addEventListener('change', async (e) => {
   if (!wand.connected) return;
@@ -214,68 +199,12 @@ $('#imu').addEventListener('change', async (e) => {
 });
 
 async function startMotion() {
+  motion.reset();
   log('motion: starting stream…');
   const flowing = await wand.startImu().catch((err) => { log(`! motion: ${err.message}`); return null; });
   if (flowing) log('motion: samples arriving');
   else if (flowing === false && wand.imuStreaming) log('motion: no samples after 3 tries. Move the wand; if the counter stays at 0, untick and tick Stream motion.');
 }
-
-wand.addEventListener('imu', (e) => {
-  const now = performance.now();
-  const samples = e.detail.samples;
-  // Sample timing isn't in the packet, so spread the gap since the last
-  // packet across its samples (clamped for the first packet and for stalls).
-  const dt = Math.min(Math.max((now - lastImuAt) / 1000 / samples.length, 0.002), 0.05);
-  lastImuAt = now;
-  sampleCount += samples.length;
-
-  const tracing = casting || $('#trace-always').checked;
-  if (tracing && strokes.length === 0) startStroke();
-  for (const s of samples) {
-    if (!tracing) continue;
-    // Yaw moves the tip left/right, pitch moves it up/down.
-    pen.x -= s.gyro[2] * dt;
-    pen.y -= s.gyro[1] * dt;
-    strokes[strokes.length - 1].push({ ...pen });
-  }
-
-  const last = samples[samples.length - 1];
-  $('#gyro').textContent = last.gyro.map(fmt).join(' ');
-  $('#accel').textContent = last.accel.map(fmt).join(' ');
-});
-
-setInterval(() => { $('#rate').textContent = `${sampleCount} /s`; sampleCount = 0; }, 1000);
-
-function fmt(n) { return (n >= 0 ? '+' : '') + n.toFixed(2); }
-
-function draw() {
-  const dpr = window.devicePixelRatio || 1;
-  const w = canvas.clientWidth, h = canvas.clientHeight;
-  if (canvas.width !== Math.round(w * dpr)) { canvas.width = Math.round(w * dpr); canvas.height = Math.round(h * dpr); }
-  ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
-  ctx.clearRect(0, 0, w, h);
-
-  const color = getComputedStyle(document.documentElement).getPropertyValue('--trail').trim();
-  const scale = Math.min(w, h) * 0.9; // ~1 radian of swing fills the box
-  strokes.forEach((pts, si) => {
-    if (pts.length < 2) return;
-    // Centre each stroke on its own bounding box so drift doesn't push it off-canvas.
-    const xs = pts.map((p) => p.x), ys = pts.map((p) => p.y);
-    const cx = (Math.min(...xs) + Math.max(...xs)) / 2, cy = (Math.min(...ys) + Math.max(...ys)) / 2;
-    ctx.globalAlpha = si === strokes.length - 1 ? 1 : 0.25;
-    ctx.strokeStyle = color;
-    ctx.lineWidth = 3;
-    ctx.lineCap = ctx.lineJoin = 'round';
-    ctx.beginPath();
-    pts.forEach((p, i) => {
-      const x = w / 2 + (p.x - cx) * scale, y = h / 2 + (p.y - cy) * scale;
-      i ? ctx.lineTo(x, y) : ctx.moveTo(x, y);
-    });
-    ctx.stroke();
-  });
-  ctx.globalAlpha = 1;
-}
-(function loop() { draw(); requestAnimationFrame(loop); })();
 
 // ---------- Lights / vibration ----------
 

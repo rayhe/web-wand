@@ -33,30 +33,43 @@ function imuPacket(index, samples) {
   buf.setUint8(0, MSG.IMU);
   buf.setUint16(1, index, true);
   buf.setUint8(3, samples.length);
-  samples.forEach(([gx, gy, gz], i) => {
+  const clamp = (v) => Math.max(-32768, Math.min(32767, Math.round(v)));
+  samples.forEach(({ gyro, accel }, i) => {
     const o = 4 + i * 12;
-    const clamp = (v) => Math.max(-32768, Math.min(32767, Math.round(v)));
-    buf.setInt16(o, clamp(gx / GYRO_SCALE), true);
-    buf.setInt16(o + 2, clamp(gy / GYRO_SCALE), true);
-    buf.setInt16(o + 4, clamp(gz / GYRO_SCALE), true);
-    buf.setInt16(o + 6, 0, true);
-    buf.setInt16(o + 8, 0, true);
-    buf.setInt16(o + 10, clamp(1 / ACCEL_SCALE), true); // 1 g of gravity
+    gyro.forEach((g, k) => buf.setInt16(o + k * 2, clamp(g / GYRO_SCALE), true));
+    accel.forEach((a, k) => buf.setInt16(o + 6 + k * 2, clamp(a / ACCEL_SCALE), true));
   });
   return new Uint8Array(buf.buffer);
 }
 
-export function startDemo(wand) {
+/**
+ * Start the fake wand. `toRaw` converts body-frame vectors (X = tip, Z = top)
+ * to the IMU's raw axes, so the data matches whatever alignment is in use.
+ */
+export function startDemo(wand, { toRaw = (v) => v } = {}) {
   let stopped = false;
   let index = 0;
+  let elevation = 0.15; // radians, tip above level
+  let heading = 0; // radians, left of straight ahead
   const timers = new Set();
   const wait = (ms) => new Promise((r) => { const id = setTimeout(() => { timers.delete(id); r(); }, ms); timers.add(id); });
 
+  // One sample while turning at headingRate (rad/s, about world up) and
+  // tilting at elevationRate, with no roll. Gravity reads as +1 g "up",
+  // which in the body frame is (sin el, 0, cos el).
+  function sample(headingRate, elevationRate) {
+    const s = Math.sin(elevation), c = Math.cos(elevation);
+    return {
+      gyro: toRaw([headingRate * s, -elevationRate, headingRate * c]),
+      accel: toRaw([s, 0, c]),
+    };
+  }
+
   async function idle(ms) {
-    // Small wobble so the gyro readout looks alive between casts.
+    // Small wobble so the readouts look alive between casts.
     for (let t = 0; t < ms && !stopped; t += TICK_MS) {
-      const jitter = () => [(Math.random() - 0.5) * 0.04, (Math.random() - 0.5) * 0.04, (Math.random() - 0.5) * 0.04];
-      wand.inject(imuPacket(index++ & 0xffff, [jitter(), jitter()]));
+      const jitter = () => (Math.random() - 0.5) * 0.05;
+      wand.inject(imuPacket(index++ & 0xffff, [sample(jitter(), jitter()), sample(jitter(), jitter())]));
       await wait(TICK_MS);
     }
   }
@@ -72,15 +85,29 @@ export function startDemo(wand) {
       const samples = [];
       for (let k = 0; k < PER_PACKET; k++) {
         const cur = shape(Math.min(1, (i + k) / steps));
-        // The app integrates x -= gz*dt, y -= gy*dt; invert that here.
-        samples.push([0, -(cur[1] - prev[1]) / dt, -(cur[0] - prev[0]) / dt]);
+        // Screen x is heading change scaled by cos(elevation); y is elevation.
+        const headingRate = -(cur[0] - prev[0]) / Math.cos(elevation) / dt;
+        const elevationRate = (cur[1] - prev[1]) / dt;
+        samples.push(sample(headingRate, elevationRate));
+        elevation += elevationRate * dt;
+        heading += headingRate * dt;
         prev = cur;
       }
       wand.inject(imuPacket(index++ & 0xffff, samples));
       await wait(TICK_MS);
     }
     wand.inject(buttons(0x00));
-    await wait(250);
+    // Drift back to a comfortable pose before the next cast.
+    const back = (0.15 - elevation) / 30;
+    const turn = -heading / 30;
+    for (let i = 0; i < 30 && !stopped; i++) {
+      const smp = sample(turn / dt, back / dt);
+      elevation += back;
+      heading += turn;
+      wand.inject(imuPacket(index++ & 0xffff, [smp]));
+      await wait(10);
+    }
+    await wait(150);
     if (!stopped) wand.inject(spellPacket(spell));
   }
 

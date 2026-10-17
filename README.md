@@ -6,7 +6,8 @@ Connect a **Harry Potter: Magic Caster Wand** to your browser over Web Bluetooth
 
 - **Spells.** The wand recognizes spells itself and reports their names. The page shows each spell and can answer with lights and a buzz on the wand.
 - **Grip buttons.** Shows each of the four touch buttons as you press it, and marks when all four are held ("casting").
-- **Motion.** Streams the gyroscope and accelerometer, and traces the tip's path while you cast.
+- **Motion.** Combines the gyroscope and accelerometer into a live **3D model** of the wand (drag to look around), with the tip's path drawn in 3D and as an **auto-scaled 2D trace** while you hold the grip.
+- **Axis alignment.** A two-step capture (point the wand up, then hold it level) works out how the motion sensor sits inside the wand, so the model turns the way your wand does. You can also pick the axes by hand.
 - **Lights and vibration.** Set the four light groups (tip, upper, lower, handle), buzz the wand, and play built-in effects such as Lumos and Incendio.
 - **Raw packets.** A log of every notification, for anyone exploring the protocol.
 - **Auto-connect.** Reconnects on its own when the wand wakes up, including across page reloads (see below).
@@ -29,6 +30,17 @@ Remembering the wand **across reloads** uses `navigator.bluetooth.getDevices()`,
 2. Restart the browser and connect the wand once with **Connect wand**.
 
 After that, opening the page connects as soon as the wand wakes up, with no picker. **Forget wand** removes the site's access.
+
+## Motion and alignment
+
+The page fuses the gyroscope and accelerometer with a Mahony filter ([`orientation.js`](orientation.js)). This gives an orientation whose tilt is anchored to gravity. Heading drifts slowly, because the wand has no compass; **Recenter** makes the current direction count as straight ahead.
+
+The sensor's X/Y/Z axes don't necessarily match the wand. Open **Align axes** and capture twice:
+
+1. Hold the wand still, pointing straight up. This finds the tip axis.
+2. Hold it still, level and pointing away from you, with the grip buttons facing up. This finds the top axis.
+
+The third axis follows from those two. The alignment is saved in your browser.
 
 ## Use the driver in your own page
 
@@ -83,7 +95,7 @@ It's a static site with no build step:
 python -m http.server 8000
 ```
 
-Then open http://localhost:8000. To run the parser tests (Node 20+):
+Then open http://localhost:8000. The 3D view loads [three.js](https://threejs.org) 0.160 from jsDelivr through an import map; the rest of the page works without it. To run the tests (Node 20+):
 
 ```bash
 node --test test/
