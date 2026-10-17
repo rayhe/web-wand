@@ -21,6 +21,7 @@
       <span id="battery" class="pill" hidden></span>
       <span id="status" class="pill" data-state="idle">Not connected</span>
       <button id="demo" class="ghost" type="button">Try demo</button>
+      <button id="forget" class="ghost" type="button" hidden title="Stop this site from auto-connecting to your wand">Forget wand</button>
       <button id="connect" class="primary" type="button">Connect wand</button>
     </div>
   </header>
@@ -34,7 +35,7 @@
   <main class="grid">
     <section class="card spell-card" aria-live="polite">
       <h2>Last spell</h2>
-      <div id="spell" class="spell">Cast a spell…</div>
+      <div id="spell" class="spell empty">Cast a spell…</div>
       <p class="hint">Hold the wand by its grip, then draw the spell's shape. The wand recognizes the spell itself and reports its name.</p>
       <label class="check"><input id="react" type="checkbox" checked> Light up and buzz the wand when a spell is cast</label>
       <ol id="history" class="history"></ol>
@@ -56,6 +57,7 @@
         <dt>Type</dt><dd data-k="wandType">—</dd>
         <dt>Firmware</dt><dd data-k="firmware">—</dd>
         <dt>Serial</dt><dd data-k="serial">—</dd>
+        <dt>Auto-connect</dt><dd id="auto">—</dd>
       </dl>
     </section>
 

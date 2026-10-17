@@ -65,6 +65,9 @@ a { color: var(--accent); }
 .pill[data-state="connected"] { color: var(--ok); border-color: currentColor; }
 .pill[data-state="demo"] { color: var(--gold); border-color: currentColor; }
 .pill[data-state="error"] { color: var(--warn); border-color: currentColor; }
+.pill[data-state="waiting"] { color: var(--accent); border-color: currentColor; }
+.pill[data-battery="charging"] { color: var(--ok); border-color: currentColor; }
+.pill[data-battery="low"], .pill[data-battery="critical"] { color: var(--warn); border-color: currentColor; }
 
 button, select {
   font: inherit; border-radius: 8px; padding: 7px 14px; cursor: pointer;
@@ -92,6 +95,7 @@ button:focus-visible, select:focus-visible, input:focus-visible { outline: 2px s
   font-family: Georgia, "Times New Roman", serif; font-size: clamp(1.8rem, 5vw, 2.6rem); line-height: 1.15;
   text-transform: capitalize; color: var(--gold); min-height: 3rem; margin: 4px 0 8px;
 }
+.spell.empty { text-transform: none; color: var(--muted); }
 .spell.cast { animation: glow 1.2s ease-out; }
 @keyframes glow {
   0% { text-shadow: 0 0 0 transparent; transform: scale(0.96); }

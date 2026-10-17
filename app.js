@@ -42,11 +42,28 @@ function setStatus(text, state) {
 function refreshControls() {
   const live = wand.connected;
   $('#connect').textContent = live ? 'Disconnect' : 'Connect wand';
+  $('#forget').hidden = !wand.device || Boolean(demo);
   for (const id of ['#leds-on', '#leds-off', '#buzz', '#play', '#imu']) $(id).disabled = !live && !demo;
 }
 
 if (!MagicCasterWand.supported) $('#unsupported').hidden = false;
 refreshControls();
+
+$('#auto').innerHTML = MagicCasterWand.canAutoConnect
+  ? 'On: reconnects whenever the wand wakes up'
+  : 'This visit only. <a href="https://github.com/rayhe/web-wand#auto-connect">Turn on a Chrome flag</a> to remember the wand.';
+
+// Reconnect to a wand this site was allowed to use before, as soon as it wakes up.
+async function autoConnect() {
+  if (demo || wand.connected) return;
+  try {
+    await wand.autoConnect();
+  } catch (err) {
+    log(`! auto-connect: ${err.message}`);
+  }
+  refreshControls();
+}
+autoConnect();
 
 $('#connect').addEventListener('click', async () => {
   if (wand.connected) return wand.disconnect();
@@ -59,12 +76,19 @@ $('#connect').addEventListener('click', async () => {
     if (err.name === 'NotFoundError') setStatus('Not connected', 'idle');
     else { setStatus('Connection failed', 'error'); log(`! ${err.message}`); }
     refreshControls();
+    autoConnect();
   }
+});
+
+$('#forget').addEventListener('click', async () => {
+  await wand.forget().catch((err) => log(`! ${err.message}`));
+  setStatus('Not connected', 'idle');
+  refreshControls();
 });
 
 $('#demo').addEventListener('click', () => {
   if (demo) return stopDemo();
-  if (wand.connected) wand.disconnect();
+  wand.disconnect();
   demo = startDemo(wand);
   $('#demo').textContent = 'Stop demo';
   setStatus('Demo mode', 'demo');
@@ -78,9 +102,16 @@ function stopDemo() {
   demo.stop();
   demo = null;
   $('#demo').textContent = 'Try demo';
+  $('#battery').hidden = true;
   setStatus('Not connected', 'idle');
   refreshControls();
+  autoConnect();
 }
+
+wand.addEventListener('waiting', (e) => {
+  setStatus(`Waiting for ${e.detail.name || 'wand'} — wake it up`, 'waiting');
+  refreshControls();
+});
 
 wand.addEventListener('connect', (e) => {
   setStatus('Connected', 'connected');
@@ -89,17 +120,26 @@ wand.addEventListener('connect', (e) => {
   if ($('#imu').checked) wand.startImu();
 });
 
-wand.addEventListener('disconnect', () => {
+wand.addEventListener('disconnect', (e) => {
   setStatus('Disconnected', 'idle');
   $('#battery').hidden = true;
   showButtons([false, false, false, false], false);
   refreshControls();
+  // The wand dropped out (asleep, out of range): pick it back up when it returns.
+  if (!e.detail.expected) autoConnect();
 });
 
+const BATTERY_LABELS = { charging: 'Charging', high: 'High', medium: 'Medium', low: 'Low', critical: 'Critical' };
+
 wand.addEventListener('battery', (e) => {
+  const { level, state } = e.detail;
   const b = $('#battery');
   b.hidden = false;
-  b.textContent = `🔋 ${e.detail.level}%`;
+  b.dataset.battery = state;
+  b.textContent = state === 'charging' ? '⚡ Charging' : `🔋 ${level}% · ${BATTERY_LABELS[state]}`;
+  b.title = state === 'charging'
+    ? 'The wand reports 100%, which it does while on the charger (or when fully charged).'
+    : `Battery ${level}%`;
 });
 
 wand.addEventListener('info', (e) => setInfo(e.detail));
@@ -117,7 +157,7 @@ wand.addEventListener('spell', (e) => {
   const name = e.detail.name;
   const el = $('#spell');
   el.textContent = name;
-  el.classList.remove('cast');
+  el.classList.remove('cast', 'empty');
   void el.offsetWidth; // restart the animation
   el.classList.add('cast');
 

@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { parsePacket, Macro, MagicCasterWand, LED } from '../wand.js';
+import { parsePacket, Macro, MagicCasterWand, LED, batteryState } from '../wand.js';
 
 test('spell packet', () => {
   const name = new TextEncoder().encode('wingardium_leviosa\0');
@@ -50,4 +50,9 @@ test('inject dispatches typed events', () => {
   wand.inject([0x10, 0x0f]);
   wand.inject([0x00, 0, 3]);
   assert.deepEqual(seen, [true, '0.3']);
+});
+
+test('battery state thresholds', () => {
+  assert.deepEqual([100, 99, 56, 55, 34, 33, 16, 15, 0].map(batteryState),
+    ['charging', 'high', 'high', 'medium', 'medium', 'low', 'low', 'critical', 'critical']);
 });

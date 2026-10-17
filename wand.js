@@ -123,6 +123,26 @@ export function parsePacket(bytes) {
   }
 }
 
+/**
+ * Coarse battery state from the level. The wand has no charging flag; it
+ * appears to report exactly 100 while on the charger, so 100 reads as
+ * 'charging' (a full wand off the charger can read 100 too).
+ */
+export function batteryState(level) {
+  if (level >= 100) return 'charging';
+  if (level >= 56) return 'high';
+  if (level >= 34) return 'medium';
+  if (level >= 16) return 'low';
+  return 'critical';
+}
+
+function sleep(ms, signal) {
+  return new Promise((resolve) => {
+    const id = setTimeout(resolve, ms);
+    signal?.addEventListener('abort', () => { clearTimeout(id); resolve(); }, { once: true });
+  });
+}
+
 // ---------- Macros: queued light + vibration sequences run on the wand ----------
 
 export class Macro {
@@ -142,8 +162,9 @@ export class Macro {
 
 /**
  * Events (CustomEvent, data in e.detail):
- *   connect, disconnect, spell {name}, buttons {pressed[4], all, mask},
- *   imu {samples[{gyro[3], accel[3]}]}, battery {level}, info {firmware?, deviceId?, wandType?, serial?, sku?},
+ *   connect {name}, disconnect {expected}, waiting {name}  — auto-connect is watching for the wand,
+ *   spell {name}, buttons {pressed[4], all, mask},
+ *   imu {samples[{gyro[3], accel[3]}]}, battery {level, state}, info {firmware?, deviceId?, wandType?, serial?, sku?},
  *   packet {bytes, parsed}  — every raw notification, for debugging
  */
 export class MagicCasterWand extends EventTarget {
@@ -155,17 +176,26 @@ export class MagicCasterWand extends EventTarget {
     this.battery = null;
     this.imuStreaming = false;
     this._queue = Promise.resolve();
+    this._watch = null;
+    this._userDisconnect = false;
     this._onNotify = (e) => this._handle(new Uint8Array(e.target.value.buffer));
     this._onBattery = (e) => this._setBattery(e.target.value.getUint8(0));
     this._onDisconnect = () => {
       this.command = null;
       this.imuStreaming = false;
-      this._emit('disconnect');
+      const expected = this._userDisconnect;
+      this._userDisconnect = false;
+      this._emit('disconnect', { expected });
     };
   }
 
   static get supported() {
     return typeof navigator !== 'undefined' && 'bluetooth' in navigator;
+  }
+
+  /** Whether this browser can reconnect to a wand without showing the picker. */
+  static get canAutoConnect() {
+    return MagicCasterWand.supported && typeof navigator.bluetooth.getDevices === 'function';
   }
 
   get connected() {
@@ -177,18 +207,93 @@ export class MagicCasterWand extends EventTarget {
     if (!MagicCasterWand.supported) {
       throw new Error('Web Bluetooth is not available. Use Chrome or Edge on desktop or Android, over HTTPS.');
     }
-    this.device = await navigator.bluetooth.requestDevice({
+    this.stopAutoConnect();
+    this._adopt(await navigator.bluetooth.requestDevice({
       filters: [{ namePrefix: NAME_PREFIX }, { services: [SERVICE_UUID] }],
       optionalServices: [SERVICE_UUID, 'battery_service', 'device_information'],
-    });
-    this.device.addEventListener('gattserverdisconnected', this._onDisconnect);
+    }));
     await this._open();
   }
 
-  /** Reconnect to the wand picked earlier without showing the picker again. */
-  async reconnect() {
-    if (!this.device) throw new Error('No wand chosen yet');
-    await this._open();
+  /** A wand this site was given access to before, or null. */
+  async rememberedDevice() {
+    if (!MagicCasterWand.canAutoConnect) return null;
+    const devices = await navigator.bluetooth.getDevices();
+    return devices.find((d) => d.name?.startsWith(NAME_PREFIX)) ?? null;
+  }
+
+  /**
+   * Wait for the remembered wand to come into range, then connect — no picker,
+   * no user gesture. Keeps trying until it connects or stopAutoConnect() /
+   * disconnect() is called. Resolves true once connected, false if there is no
+   * remembered wand or it was stopped.
+   */
+  async autoConnect() {
+    const device = this.device ?? (await this.rememberedDevice());
+    if (!device) return false;
+    this._adopt(device);
+    this.stopAutoConnect();
+    const watch = (this._watch = new AbortController());
+    const { signal } = watch;
+    this._emit('waiting', { name: device.name });
+
+    let canWatch = typeof device.watchAdvertisements === 'function';
+    while (!signal.aborted) {
+      try {
+        // A sleeping wand isn't advertising and connect() would just time out,
+        // so wait until it is heard when the browser can tell us.
+        if (canWatch) await this._heard(device, signal);
+        if (signal.aborted) break;
+        await this._open();
+        if (this._watch === watch) this._watch = null;
+        return true;
+      } catch (err) {
+        if (err?.name === 'NotSupportedError' || err?.name === 'NotAllowedError') canWatch = false;
+        await sleep(canWatch ? 500 : 3000, signal);
+      }
+    }
+    return false;
+  }
+
+  stopAutoConnect() {
+    this._watch?.abort();
+    this._watch = null;
+  }
+
+  /** Revoke this site's access to the wand, so it is no longer auto-connected. */
+  async forget() {
+    this.stopAutoConnect();
+    const device = this.device ?? (await this.rememberedDevice());
+    this.disconnect();
+    await device?.forget?.();
+    if (this.device === device) this._adopt(null);
+  }
+
+  _adopt(device) {
+    if (this.device === device) return;
+    this.device?.removeEventListener('gattserverdisconnected', this._onDisconnect);
+    this.device = device;
+    device?.addEventListener('gattserverdisconnected', this._onDisconnect);
+  }
+
+  /** Resolve on the device's next advertisement (or on abort). */
+  _heard(device, signal) {
+    return new Promise((resolve, reject) => {
+      const inner = new AbortController();
+      const finish = () => {
+        device.removeEventListener('advertisementreceived', finish);
+        signal.removeEventListener('abort', finish);
+        inner.abort();
+        resolve();
+      };
+      device.addEventListener('advertisementreceived', finish);
+      signal.addEventListener('abort', finish);
+      device.watchAdvertisements({ signal: inner.signal }).catch((err) => {
+        device.removeEventListener('advertisementreceived', finish);
+        signal.removeEventListener('abort', finish);
+        reject(err);
+      });
+    });
   }
 
   async _open() {
@@ -219,13 +324,18 @@ export class MagicCasterWand extends EventTarget {
   }
 
   disconnect() {
-    this.device?.gatt?.disconnect();
+    this.stopAutoConnect();
+    if (this.device?.gatt?.connected) {
+      this._userDisconnect = true;
+      this.device.gatt.disconnect();
+    }
   }
 
   /** Write raw bytes to the command characteristic. Writes are serialized. */
   send(bytes) {
     const data = bytes instanceof Uint8Array ? bytes : new Uint8Array(bytes);
-    this._queue = this._queue.then(async () => {
+    // Chain off a caught copy so one failed write doesn't fail every later one.
+    this._queue = this._queue.catch(() => {}).then(async () => {
       if (!this.command) throw new Error('Wand not connected');
       if (this.command.writeValueWithoutResponse) await this.command.writeValueWithoutResponse(data);
       else await this.command.writeValue(data);
@@ -269,7 +379,7 @@ export class MagicCasterWand extends EventTarget {
 
   _setBattery(level) {
     this.battery = level;
-    this._emit('battery', { level });
+    this._emit('battery', { level, state: batteryState(level) });
   }
 
   _handle(bytes) {
