@@ -59,8 +59,32 @@ $('#auto').innerHTML = MagicCasterWand.canAutoConnect
   : 'This visit only. <a href="https://github.com/rayhe/web-wand#auto-connect">Turn on a Chrome flag</a> to remember the wand.';
 
 // Reconnect to a wand this site was allowed to use before, as soon as it wakes up.
+// Only one tab may hold the wand, and a connected wand stops advertising, so a
+// forgotten background tab would leave the picker in this one finding nothing.
+// Tabs therefore auto-connect only while visible, and hand the wand over when
+// another tab connects.
+const tabs = 'BroadcastChannel' in window ? new BroadcastChannel('web-wand') : null;
+let inOtherTab = false;
+
+tabs?.addEventListener('message', (e) => {
+  if (e.data?.type !== 'claim' && e.data?.type !== 'connected') return;
+  inOtherTab = true;
+  if (wand.connected) log('wand handed over to another tab');
+  wand.disconnect(); // also stops waiting for it
+  setStatus('In use in another tab', 'idle');
+  refreshControls();
+});
+
+document.addEventListener('visibilitychange', () => {
+  if (document.hidden) {
+    if (!wand.connected) wand.stopAutoConnect();
+  } else {
+    autoConnect();
+  }
+});
+
 async function autoConnect() {
-  if (demo || wand.connected) return;
+  if (demo || wand.connected || document.hidden || inOtherTab) return;
   try {
     await wand.autoConnect();
   } catch (err) {
@@ -75,6 +99,12 @@ $('#connect').addEventListener('click', async () => {
   stopDemo();
   try {
     setStatus('Connecting…', 'idle');
+    if (tabs) {
+      // Ask other tabs to let go, and give the wand a moment to start advertising.
+      tabs.postMessage({ type: 'claim' });
+      await new Promise((r) => setTimeout(r, 700));
+    }
+    inOtherTab = false;
     await wand.connect();
   } catch (err) {
     // The user closing the picker is not an error worth shouting about.
@@ -129,6 +159,8 @@ wand.addEventListener('waiting', (e) => {
 });
 
 wand.addEventListener('connect', (e) => {
+  inOtherTab = false;
+  tabs?.postMessage({ type: 'connected' });
   setStatus('Connected', 'connected');
   setInfo({ name: e.detail.name });
   refreshControls();
@@ -136,7 +168,7 @@ wand.addEventListener('connect', (e) => {
 });
 
 wand.addEventListener('disconnect', (e) => {
-  setStatus('Disconnected', 'idle');
+  setStatus(inOtherTab ? 'In use in another tab' : 'Disconnected', 'idle');
   $('#battery').hidden = true;
   showButtons([false, false, false, false], false);
   refreshControls();
