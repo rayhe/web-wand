@@ -117,7 +117,7 @@ wand.addEventListener('connect', (e) => {
   setStatus('Connected', 'connected');
   setInfo({ name: e.detail.name });
   refreshControls();
-  if ($('#imu').checked) wand.startImu();
+  if ($('#imu').checked) startMotion();
 });
 
 wand.addEventListener('disconnect', (e) => {
@@ -208,10 +208,17 @@ $('#clear-trail').addEventListener('click', () => { strokes = []; draw(); });
 $('#imu').addEventListener('change', async (e) => {
   if (!wand.connected) return;
   try {
-    if (e.target.checked) await wand.startImu();
+    if (e.target.checked) await startMotion();
     else await wand.stopImu();
   } catch (err) { log(`! ${err.message}`); }
 });
+
+async function startMotion() {
+  log('motion: starting stream…');
+  const flowing = await wand.startImu().catch((err) => { log(`! motion: ${err.message}`); return null; });
+  if (flowing) log('motion: samples arriving');
+  else if (flowing === false && wand.imuStreaming) log('motion: no samples after 3 tries. Move the wand; if the counter stays at 0, untick and tick Stream motion.');
+}
 
 wand.addEventListener('imu', (e) => {
   const now = performance.now();

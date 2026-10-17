@@ -178,6 +178,7 @@ export class MagicCasterWand extends EventTarget {
     this._queue = Promise.resolve();
     this._watch = null;
     this._userDisconnect = false;
+    this.settleMs = 500;
     this._onNotify = (e) => this._handle(new Uint8Array(e.target.value.buffer));
     this._onBattery = (e) => this._setBattery(e.target.value.getUint8(0));
     this._onDisconnect = () => {
@@ -313,7 +314,8 @@ export class MagicCasterWand extends EventTarget {
       // Some firmware does not expose the battery service; not fatal.
     }
 
-    this._emit('connect', { name: this.device.name });
+    // The wand ignores commands sent right after subscribing.
+    await sleep(this.settleMs);
 
     // Button sensitivity, as the official app sets it. Without this the grip
     // buttons may not report.
@@ -321,6 +323,10 @@ export class MagicCasterWand extends EventTarget {
     await this.send([CMD.FIRMWARE_VERSION_READ]);
     await this.send([CMD.PRODUCT_INFO_READ, 0x04]);
     await this.send([CMD.PRODUCT_INFO_READ, 0x01]);
+
+    // Only now, so commands sent from 'connect' listeners (like startImu)
+    // come after the setup instead of being interleaved with it.
+    this._emit('connect', { name: this.device.name });
   }
 
   disconnect() {
@@ -344,10 +350,24 @@ export class MagicCasterWand extends EventTarget {
   }
 
   /** Start streaming gyroscope + accelerometer samples ('imu' events). */
-  async startImu() {
-    await this.send([CMD.IMU_STOP]);
-    await this.send([CMD.IMU_START, 0x00, 0x80]);
+  /**
+   * Start streaming gyroscope + accelerometer samples ('imu' events).
+   * The start command is unacknowledged and sometimes ignored, so it is
+   * resent until samples arrive. Resolves true once samples are flowing,
+   * false if none came after every attempt (the wand may only report while
+   * moving).
+   */
+  async startImu({ attempts = 3, waitMs = 1000 } = {}) {
     this.imuStreaming = true;
+    for (let i = 1; i <= attempts && this.imuStreaming; i++) {
+      await this.send([CMD.IMU_STOP]);
+      await sleep(100);
+      if (!this.imuStreaming) break; // stopped meanwhile
+      const heard = this._nextEvent('imu', waitMs);
+      await this.send([CMD.IMU_START, 0x00, 0x80]);
+      if (await heard) return true;
+    }
+    return false;
   }
 
   async stopImu() {
@@ -370,6 +390,16 @@ export class MagicCasterWand extends EventTarget {
 
   runMacro(macro) {
     return this.send(macro.bytes());
+  }
+
+  /** Resolve true on the next event of this type, or false after ms. */
+  _nextEvent(type, ms) {
+    return new Promise((resolve) => {
+      const done = (ok) => { clearTimeout(timer); this.removeEventListener(type, onEvent); resolve(ok); };
+      const onEvent = () => done(true);
+      const timer = setTimeout(() => done(false), ms);
+      this.addEventListener(type, onEvent);
+    });
   }
 
   /** Feed a packet as if the wand sent it. Used by the demo mode and tests. */
