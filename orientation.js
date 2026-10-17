@@ -160,3 +160,120 @@ export class OrientationFilter {
     this.ready = true;
   }
 }
+
+// ---------- Learning the alignment from normal use ----------
+
+const SWING_RATE = 1.0; // rad/s: faster than this counts as a swing
+const MIN_SWING_SAMPLES = 150;
+const STILL_RATE = 0.3; // rad/s: slower than this counts as held still
+
+/**
+ * Learns the alignment from raw samples, without any setup:
+ *  - Tip axis: casting swings the wand about its pivot but rarely twists it
+ *    along its length, so the raw axis with the least swing rotation is the
+ *    long axis.
+ *  - Tip direction: holding the wand still and straight up puts gravity along
+ *    that axis, and its sign says which end is the tip.
+ *  - Top axis: each still, roughly level hold votes for whichever other axis
+ *    gravity falls on.
+ */
+export class AutoAligner {
+  constructor({ holdSeconds = 1 } = {}) {
+    this.holdSeconds = holdSeconds;
+    this.reset();
+  }
+
+  reset() {
+    this.energy = [0, 0, 0];
+    this.swings = 0;
+    this.longAxis = null; // 0/1/2 once the swings make it clear
+    this.tipSign = 0;
+    this.upVotes = {};
+    this._sinceSwing = Infinity;
+    this._still = null;
+  }
+
+  /** The raw axis index that rotates least during swings, once that is clear. */
+  _longAxisFromSwings() {
+    if (this.swings < MIN_SWING_SAMPLES) return null;
+    const order = [0, 1, 2].sort((a, b) => this.energy[a] - this.energy[b]);
+    return this.energy[order[0]] < 0.35 * this.energy[order[1]] ? order[0] : null;
+  }
+
+  /**
+   * Feed one raw sample (gyro rad/s, accel g, dt s). Returns 'hold-up' or
+   * 'level' when a still hold was just counted, otherwise null.
+   */
+  push(gyro, accel, dt) {
+    const rate = Math.hypot(...gyro);
+    const g = Math.hypot(...accel);
+    if (rate > SWING_RATE) {
+      for (let i = 0; i < 3; i++) this.energy[i] += gyro[i] * gyro[i];
+      this.swings++;
+      this._sinceSwing = 0;
+      const axis = this._longAxisFromSwings();
+      if (axis !== this.longAxis) {
+        // A different long axis invalidates what the holds told us.
+        this.longAxis = axis;
+        this.tipSign = 0;
+        this.upVotes = {};
+      }
+    } else {
+      this._sinceSwing += dt;
+    }
+
+    if (rate > STILL_RATE || g < 0.9 || g > 1.1) {
+      this._still = null;
+      return null;
+    }
+    // A different pose (gravity moved) is a new hold, even without a swing between.
+    const prev = this._still;
+    if (prev?.n > 5 && Math.hypot(...accel.map((a, i) => a - prev.sum[i] / prev.n)) > 0.2) {
+      this._still = { t: 0, sum: [0, 0, 0], n: 0, inHand: this._sinceSwing < 3, counted: false };
+    }
+    if (!this._still) this._still = { t: 0, sum: [0, 0, 0], n: 0, inHand: this._sinceSwing < 3, counted: false };
+    const st = this._still;
+    st.t += dt;
+    st.n++;
+    for (let i = 0; i < 3; i++) st.sum[i] += accel[i];
+    if (st.counted || st.t < this.holdSeconds || this.longAxis === null) return null;
+    st.counted = true;
+
+    const mag = Math.hypot(...st.sum);
+    const up = st.sum.map((s) => s / mag); // unit "up" in raw axes
+    const L = this.longAxis;
+    if (Math.abs(up[L]) > 0.9) {
+      // Held vertical: people hold a wand tip-up, not tip-down.
+      this.tipSign = Math.sign(up[L]);
+      return 'hold-up';
+    }
+    if (Math.abs(up[L]) < 0.5 && st.inHand) {
+      let best = -1;
+      for (let i = 0; i < 3; i++) if (i !== L && (best < 0 || Math.abs(up[i]) > Math.abs(up[best]))) best = i;
+      if (Math.abs(up[best]) > 0.7) {
+        const axis = (up[best] < 0 ? '-' : '+') + 'xyz'[best];
+        this.upVotes[axis] = (this.upVotes[axis] || 0) + 1;
+        return 'level';
+      }
+    }
+    return null;
+  }
+
+  /** Best alignment so far: { tip, up } with either possibly null. */
+  get result() {
+    const tip = this.longAxis !== null && this.tipSign ? (this.tipSign < 0 ? '-' : '+') + 'xyz'[this.longAxis] : null;
+    const votes = Object.entries(this.upVotes).sort((a, b) => b[1] - a[1]);
+    const total = votes.reduce((s, [, n]) => s + n, 0);
+    const up = votes.length && votes[0][1] >= 2 && votes[0][1] / total >= 0.6 ? votes[0][0] : null;
+    return { tip, up };
+  }
+
+  /** Progress for the UI. */
+  get status() {
+    return {
+      swingProgress: Math.min(1, this.swings / MIN_SWING_SAMPLES),
+      longAxis: this.longAxis === null ? null : 'xyz'[this.longAxis],
+      ...this.result,
+    };
+  }
+}

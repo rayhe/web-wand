@@ -56,3 +56,7 @@ test('battery state thresholds', () => {
   assert.deepEqual([100, 99, 56, 55, 34, 33, 16, 15, 0].map(batteryState),
     ['charging', 'high', 'high', 'medium', 'medium', 'low', 'low', 'critical', 'critical']);
 });
+
+test('grip threshold read-back', () => {
+  assert.deepEqual(parsePacket([0xdd, 2, 7]), { type: 'threshold', index: 2, value: 7 });
+});

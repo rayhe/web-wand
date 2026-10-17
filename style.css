@@ -164,3 +164,6 @@ footer { text-align: center; color: var(--muted); font-size: 0.8rem; padding: 8p
   .spell.cast { animation: none; }
   .btn-dot { transition: none; }
 }
+
+.sens { margin-top: 10px; margin-bottom: 0; }
+.sens label { font-size: 0.9rem; }

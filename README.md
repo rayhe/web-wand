@@ -5,9 +5,9 @@ Connect a **Harry Potter: Magic Caster Wand** to your browser over Web Bluetooth
 **Live:** https://rayhe.github.io/web-wand/
 
 - **Spells.** The wand recognizes spells itself and reports their names. The page shows each spell and can answer with lights and a buzz on the wand.
-- **Grip buttons.** Shows each of the four touch buttons as you press it, and marks when all four are held ("casting").
+- **Grip buttons.** Shows each of the four touch buttons as you press it, and marks when all four are held ("casting"). The page reads the wand's grip sensitivity and leaves it alone unless you pick a setting. If the grip doesn't respond, choose **7 / 10**, the values the official app writes.
 - **Motion.** Combines the gyroscope and accelerometer into a live **3D model** of the wand (drag to look around), with the tip's path drawn in 3D and as an **auto-scaled 2D trace** while you hold the grip.
-- **Axis alignment.** A two-step capture (point the wand up, then hold it level) works out how the motion sensor sits inside the wand, so the model turns the way your wand does. You can also pick the axes by hand.
+- **Axis alignment.** Works out how the motion sensor sits inside the wand, so the model turns the way your wand does. It learns automatically while you cast: swinging finds the long axis, holding the wand straight up finds the tip, and level holds find the top. There's also a hands-free two-step capture, and you can pick the axes by hand.
 - **Lights and vibration.** Set the four light groups (tip, upper, lower, handle), buzz the wand, and play built-in effects such as Lumos and Incendio.
 - **Raw packets.** A log of every notification, for anyone exploring the protocol.
 - **Auto-connect.** Reconnects on its own when the wand wakes up, including across page reloads (see below).
@@ -35,7 +35,7 @@ After that, opening the page connects as soon as the wand wakes up, with no pick
 
 The page fuses the gyroscope and accelerometer with a Mahony filter ([`orientation.js`](orientation.js)). This gives an orientation whose tilt is anchored to gravity. Heading drifts slowly, because the wand has no compass; **Recenter** makes the current direction count as straight ahead.
 
-The sensor's X/Y/Z axes don't necessarily match the wand. Open **Align axes** and capture twice:
+The sensor's X/Y/Z axes don't necessarily match the wand. By default the page learns the alignment as you use the wand. Casting swings the wand about its pivot but rarely twists it along its length, so the axis that rotates least is the long one. Holding the wand still and straight up for a second then shows which end is the tip, and still, level holds vote for the top. To set it right away instead, open **Align axes** and use the two captures. Each one fires once you've held still for a second:
 
 1. Hold the wand still, pointing straight up. This finds the tip axis.
 2. Hold it still, level and pointing away from you, with the grip buttons facing up. This finds the top axis.

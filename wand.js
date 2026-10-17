@@ -25,6 +25,7 @@ export const CMD = {
   LED_CLEAR_ALL: 0x40,
   LED_SET: 0x42,
   BUTTON_SET_THRESHOLD: 0xdc,
+  BUTTON_READ_THRESHOLD: 0xdd,
   MACRO: 0x68,
 };
 
@@ -38,8 +39,20 @@ export const MSG = {
   BUTTONS: 0x10,
   SPELL: 0x24,
   IMU: 0x2c,
+  BUTTON_THRESHOLD: 0xdd,
   BUTTON_CALIBRATION: 0xfb,
   IMU_CALIBRATION: 0xfc,
+};
+
+/**
+ * Grip-button sensitivity presets: [value for index 0-3, value for 4-7].
+ * The official app writes 7/10 (seen in a Bluetooth capture of it); other
+ * community projects write 5/8. Neither is confirmed by any documentation.
+ */
+export const BUTTON_SENSITIVITY = {
+  '5/8': [5, 8],
+  '7/10': [7, 10],
+  '10/13': [10, 13],
 };
 
 // The four light groups along the wand, tip to handle.
@@ -114,6 +127,9 @@ export function parsePacket(bytes) {
       }
       return { type: 'productInfo', kind };
     }
+    case MSG.BUTTON_THRESHOLD:
+      // [0xdd, index, value]: index 0-3 and 4-7 pair up per grip button.
+      return data.length >= 3 ? { type: 'threshold', index: data[1], value: data[2] } : null;
     case MSG.BUTTON_CALIBRATION:
       return { type: 'calibrated', what: 'buttons' };
     case MSG.IMU_CALIBRATION:
@@ -165,6 +181,7 @@ export class Macro {
  *   connect {name}, disconnect {expected}, waiting {name}  — auto-connect is watching for the wand,
  *   spell {name}, buttons {pressed[4], all, mask},
  *   imu {samples[{gyro[3], accel[3]}]}, battery {level, state}, info {firmware?, deviceId?, wandType?, serial?, sku?},
+ *   thresholds {values[8]}  — grip sensitivity as read back from the wand,
  *   packet {bytes, parsed}  — every raw notification, for debugging
  */
 export class MagicCasterWand extends EventTarget {
@@ -179,6 +196,10 @@ export class MagicCasterWand extends EventTarget {
     this._watch = null;
     this._userDisconnect = false;
     this.settleMs = 500;
+    this.writeGapMs = 50; // the wand drops writes that arrive back to back
+    this.thresholds = new Array(8).fill(null);
+    // Grip sensitivity to write on every connect, or null to leave the wand's own values.
+    this.buttonSensitivity = null;
     this._onNotify = (e) => this._handle(new Uint8Array(e.target.value.buffer));
     this._onBattery = (e) => this._setBattery(e.target.value.getUint8(0));
     this._onDisconnect = () => {
@@ -317,12 +338,13 @@ export class MagicCasterWand extends EventTarget {
     // The wand ignores commands sent right after subscribing.
     await sleep(this.settleMs);
 
-    // Button sensitivity, as the official app sets it. Without this the grip
-    // buttons may not report.
-    for (let i = 0; i < 8; i++) await this.send([CMD.BUTTON_SET_THRESHOLD, i, i < 4 ? 0x05 : 0x08]);
     await this.send([CMD.FIRMWARE_VERSION_READ]);
     await this.send([CMD.PRODUCT_INFO_READ, 0x04]);
     await this.send([CMD.PRODUCT_INFO_READ, 0x01]);
+    // Grip sensitivity is only written when asked for: writing values the wand
+    // doesn't expect can stop the grip buttons from reporting at all.
+    if (this.buttonSensitivity) await this.setButtonSensitivity(this.buttonSensitivity);
+    else await this.readButtonThresholds();
 
     // Only now, so commands sent from 'connect' listeners (like startImu)
     // come after the setup instead of being interleaved with it.
@@ -345,6 +367,7 @@ export class MagicCasterWand extends EventTarget {
       if (!this.command) throw new Error('Wand not connected');
       if (this.command.writeValueWithoutResponse) await this.command.writeValueWithoutResponse(data);
       else await this.command.writeValue(data);
+      await sleep(this.writeGapMs);
     });
     return this._queue;
   }
@@ -373,6 +396,24 @@ export class MagicCasterWand extends EventTarget {
   async stopImu() {
     await this.send([CMD.IMU_STOP]);
     this.imuStreaming = false;
+  }
+
+  /** Ask the wand for its eight grip thresholds; answers arrive as 'thresholds' events. */
+  async readButtonThresholds() {
+    for (let i = 0; i < 8; i++) await this.send([CMD.BUTTON_READ_THRESHOLD, i]);
+  }
+
+  /**
+   * Write grip sensitivity, as a preset name from BUTTON_SENSITIVITY or a
+   * [low, high] pair, then read the values back to confirm.
+   */
+  async setButtonSensitivity(preset) {
+    const [low, high] = Array.isArray(preset) ? preset : BUTTON_SENSITIVITY[preset];
+    for (let i = 0; i < 4; i++) {
+      await this.send([CMD.BUTTON_SET_THRESHOLD, i, low]);
+      await this.send([CMD.BUTTON_SET_THRESHOLD, i + 4, high]);
+    }
+    await this.readButtonThresholds();
   }
 
   /** Set one light group to a solid colour. */
@@ -434,6 +475,12 @@ export class MagicCasterWand extends EventTarget {
         break;
       case 'sku':
         this._info({ sku: parsed.sku });
+        break;
+      case 'threshold':
+        if (parsed.index < 8) {
+          this.thresholds[parsed.index] = parsed.value;
+          this._emit('thresholds', { values: [...this.thresholds] });
+        }
         break;
       case 'boxAddress':
         this._info({ boxAddress: parsed.address });

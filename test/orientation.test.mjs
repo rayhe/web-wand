@@ -36,3 +36,28 @@ test('filter integrates a turn', () => {
   const tip = rotate(f.q, [1, 0, 0]);
   near(tip[1], Math.sin(0.5), 0.01);
 });
+
+test('auto-aligner learns tip from swings + hold-up, top from level holds', async () => {
+  const { AutoAligner } = await import('../orientation.js');
+  const truth = alignmentMatrix({ tip: '-y', up: '+x' });
+  const toRaw = (v) => applyMatrix(transpose(truth), v);
+  const a = new AutoAligner();
+  const dt = 0.01;
+  // Swings: rotation about the body's y/z (sweeping the tip), little roll.
+  for (let i = 0; i < 300; i++) {
+    const t = i * dt;
+    a.push(toRaw([0.2 * Math.sin(t * 11), 3 * Math.sin(t * 7), 3 * Math.cos(t * 5)]), toRaw([0, 0, 1]), dt);
+  }
+  assert.equal(a.status.longAxis, 'y');
+  // Lying on a table (not just swung) must not vote for the top.
+  for (let i = 0; i < 400; i++) a.push(toRaw([0, 0, 0]), toRaw([0, 1, 0]), dt);
+  // Held straight up.
+  for (let i = 0; i < 150; i++) a.push(toRaw([0, 0, 0]), toRaw([0.99, 0, 0.1]), dt);
+  assert.deepEqual(a.result, { tip: '-y', up: null });
+  // Two level holds right after moving, buttons up.
+  for (let k = 0; k < 2; k++) {
+    for (let i = 0; i < 20; i++) a.push(toRaw([0, 0, 3]), toRaw([0, 0, 1]), dt);
+    for (let i = 0; i < 150; i++) a.push(toRaw([0, 0, 0]), toRaw([0.2, 0, 0.98]), dt);
+  }
+  assert.deepEqual(a.result, { tip: '-y', up: '+x' });
+});

@@ -5,6 +5,8 @@ import { applyMatrix, transpose } from './orientation.js';
 
 const $ = (sel) => document.querySelector(sel);
 const wand = new MagicCasterWand();
+const SENS_KEY = 'web-wand-grip-sensitivity';
+try { wand.buttonSensitivity = localStorage.getItem(SENS_KEY) || null; } catch { /* storage blocked */ }
 let demo = null;
 
 // ---------- Effects the wand can play (light + vibration sequences) ----------
@@ -147,6 +149,26 @@ wand.addEventListener('battery', (e) => {
 });
 
 wand.addEventListener('info', (e) => setInfo(e.detail));
+
+// ---------- Grip sensitivity ----------
+
+const sensSelect = $('#sensitivity');
+sensSelect.value = wand.buttonSensitivity || '';
+
+wand.addEventListener('thresholds', (e) => {
+  const v = e.detail.values;
+  const pair = (i) => (v[i] === null || v[i + 4] === null ? '?' : `${v[i]}/${v[i + 4]}`);
+  $('#thresholds').textContent = [0, 1, 2, 3].map(pair).join(' · ');
+});
+
+sensSelect.addEventListener('change', async () => {
+  const preset = sensSelect.value || null;
+  wand.buttonSensitivity = preset;
+  try { preset ? localStorage.setItem(SENS_KEY, preset) : localStorage.removeItem(SENS_KEY); } catch { /* not fatal */ }
+  if (!preset || !wand.connected) return;
+  log(`grip: writing sensitivity ${preset}`);
+  try { await wand.setButtonSensitivity(preset); } catch (err) { log(`! ${err.message}`); }
+});
 
 function setInfo(patch) {
   for (const [k, v] of Object.entries(patch)) {

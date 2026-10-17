@@ -2,11 +2,12 @@
 // model and the auto-scaled 2D tip path.
 
 import {
-  AXES, OrientationFilter, alignmentMatrix, applyMatrix, eulerOf, quatFromYaw,
+  AXES, AutoAligner, OrientationFilter, alignmentMatrix, applyMatrix, eulerOf, quatFromYaw,
   quatMultiply, rotate, upAxisFromAccel, validAlignment, wrapAngle,
 } from './orientation.js';
 
 const STORAGE_KEY = 'web-wand-alignment';
+const AUTO_KEY = 'web-wand-auto-align';
 const DEFAULT_ALIGNMENT = { tip: '+x', up: '+z' };
 const MAX_STROKES = 6;
 const MAX_POINTS = 3000;
@@ -22,6 +23,19 @@ function loadAlignment() {
     // Storage blocked or corrupt: fall back to the default.
   }
   return { ...DEFAULT_ALIGNMENT };
+}
+
+function loadFlag(key, fallback) {
+  try {
+    const v = localStorage.getItem(key);
+    return v === null ? fallback : v === '1';
+  } catch {
+    return fallback;
+  }
+}
+
+function saveFlag(key, on) {
+  try { localStorage.setItem(key, on ? '1' : '0'); } catch { /* not fatal */ }
 }
 
 function saveAlignment(a) {
@@ -59,6 +73,9 @@ export function setupMotion({ wand, log, $ }) {
   const recentAccel = []; // raw accel, for alignment capture
   let view3d = null;
   let tipDistance = 0.92;
+  const aligner = new AutoAligner();
+  let autoLearn = loadFlag(AUTO_KEY, true);
+  let statusShownAt = 0;
 
   // ---------- 3D model (three.js loads from a CDN; the page works without it) ----------
 
@@ -89,6 +106,7 @@ export function setupMotion({ wand, log, $ }) {
     for (const s of samples) {
       recentAccel.push(s.accel);
       if (recentAccel.length > 40) recentAccel.shift();
+      if (autoLearn && aligner.push(s.gyro, s.accel, period)) applyLearned();
       body = { gyro: applyMatrix(matrix, s.gyro), accel: applyMatrix(matrix, s.accel) };
       filter.update(body.gyro, body.accel, period);
       if (recenterNext && filter.ready) {
@@ -99,6 +117,8 @@ export function setupMotion({ wand, log, $ }) {
       if (trace) addPoint();
     }
     view3d?.setOrientation(q);
+
+    if (autoLearn && performance.now() - statusShownAt > 500) showAutoStatus();
 
     const { yaw, pitch, roll } = eulerOf(q);
     $('#gyro').textContent = body.gyro.map(fmt).join(' ');
@@ -282,26 +302,93 @@ export function setupMotion({ wand, log, $ }) {
     return jitter < 0.15 ? avg : null;
   }
 
-  function capture(kind) {
+  // ---- Learning automatically ----
+
+  function applyLearned() {
+    const { tip, up } = aligner.result;
+    showAutoStatus();
+    if (!tip) return;
+    const top = up && up[1] !== tip[1] ? up
+      : alignment.up[1] !== tip[1] ? alignment.up
+      : AXES.find((a) => a[1] !== tip[1]);
+    if (tip === alignment.tip && top === alignment.up) return;
+    applyAlignment({ tip, up: top }, `Learned automatically: tip ${tip.toUpperCase()}, top ${top.toUpperCase()}.`);
+    log(`motion: auto-aligned to tip ${tip}, top ${top}`);
+  }
+
+  function showAutoStatus() {
+    statusShownAt = performance.now();
+    const el = $('#auto-status');
+    if (!autoLearn) { el.textContent = ''; return; }
+    const st = aligner.status;
+    if (!st.longAxis) {
+      el.textContent = st.swingProgress < 1
+        ? `Learning: swing the wand around as if casting (${Math.round(st.swingProgress * 100)}%).`
+        : 'Learning: keep swinging; sweep the tip around rather than twisting the handle.';
+    } else if (!st.tip) {
+      el.textContent = `Found the wand's long axis (${st.longAxis.toUpperCase()}). Now hold the wand straight up and still for a second.`;
+    } else if (!st.up) {
+      el.textContent = `Tip is ${st.tip.toUpperCase()}. Holding it level and still a couple of times will confirm which side is the top.`;
+    } else {
+      el.textContent = `Learned: tip ${st.tip.toUpperCase()}, top ${st.up.toUpperCase()}. Still learning in the background.`;
+    }
+  }
+
+  function setAutoLearn(on) {
+    autoLearn = on;
+    $('#auto-align').checked = on;
+    saveFlag(AUTO_KEY, on);
+    if (on) aligner.reset();
+    showAutoStatus();
+  }
+
+  // ---- Guided capture: waits until the wand is held still in position ----
+
+  let pending = null;
+
+  async function capture(kind) {
+    const button = kind === 'tip' ? $('#capture-tip') : $('#capture-up');
+    if (pending) {
+      const same = pending.kind === kind;
+      pending.cancelled = true;
+      if (same) return; // a second click cancels
+    }
     if (!streaming()) {
       $('#align-msg').textContent = 'Turn on Stream motion first.';
       return;
     }
-    const accel = stillAccel();
-    if (!accel) {
-      $('#align-msg').textContent = 'Hold the wand still for a moment, then press Capture again.';
-      return;
+    const job = (pending = { kind, cancelled: false });
+    const label = button.textContent;
+    button.textContent = 'Cancel';
+    $('#align-msg').textContent = kind === 'tip'
+      ? 'Point the wand straight up and hold it still…'
+      : 'Hold the wand level, pointing away, grip buttons up, and keep it still…';
+
+    let message = 'Timed out. Press the button to try again.';
+    let stillSince = 0;
+    for (const end = performance.now() + 20000; performance.now() < end && !job.cancelled;) {
+      await new Promise((r) => setTimeout(r, 100));
+      const accel = stillAccel();
+      if (!accel) { stillSince = 0; continue; }
+      stillSince ||= performance.now();
+      if (performance.now() - stillSince < 1000) continue;
+
+      const { axis, confidence } = kind === 'tip' ? upAxisFromAccel(accel) : upAxisFromAccel(accel, alignment.tip);
+      if (confidence < 0.85) { stillSince = 0; continue; } // not in position yet
+      setAutoLearn(false); // the user is taking control
+      if (kind === 'tip') {
+        const up = axis[1] === alignment.up[1] ? AXES.find((a) => a[1] !== axis[1]) : alignment.up;
+        applyAlignment({ tip: axis, up }, '');
+        message = `Tip is raw ${axis.toUpperCase()}. Now do step 2.`;
+      } else {
+        applyAlignment({ tip: alignment.tip, up: axis }, '');
+        message = `Top is raw ${axis.toUpperCase()}. Aligned: the model should now follow your wand.`;
+      }
+      break;
     }
-    if (kind === 'tip') {
-      const { axis, confidence } = upAxisFromAccel(accel);
-      if (confidence < 0.85) { $('#align-msg').textContent = 'Point the wand more nearly straight up and try again.'; return; }
-      const up = axis[1] === alignment.up[1] ? AXES.find((a) => a[1] !== axis[1]) : alignment.up;
-      applyAlignment({ tip: axis, up }, `Tip is raw ${axis.toUpperCase()}. Now do step 2.`);
-    } else {
-      const { axis, confidence } = upAxisFromAccel(accel, alignment.tip);
-      if (confidence < 0.85) { $('#align-msg').textContent = 'Hold the wand level with the buttons facing straight up, and try again.'; return; }
-      applyAlignment({ tip: alignment.tip, up: axis }, `Top is raw ${axis.toUpperCase()}. Aligned: the model should now follow your wand.`);
-    }
+    if (pending === job) pending = null;
+    button.textContent = label;
+    if (!job.cancelled) $('#align-msg').textContent = message;
   }
 
   $('#align-toggle').addEventListener('click', () => {
@@ -311,9 +398,21 @@ export function setupMotion({ wand, log, $ }) {
   });
   $('#capture-tip').addEventListener('click', () => capture('tip'));
   $('#capture-up').addEventListener('click', () => capture('up'));
-  tipSel.addEventListener('change', () => applyAlignment({ tip: tipSel.value, up: alignment.up }, 'Tip axis set.'));
-  upSel.addEventListener('change', () => applyAlignment({ tip: alignment.tip, up: upSel.value }, 'Top axis set.'));
-  $('#axis-reset').addEventListener('click', () => applyAlignment({ ...DEFAULT_ALIGNMENT }, 'Back to the default axes.'));
+  $('#auto-align').addEventListener('change', (e) => setAutoLearn(e.target.checked));
+  tipSel.addEventListener('change', () => {
+    setAutoLearn(false);
+    applyAlignment({ tip: tipSel.value, up: alignment.up }, 'Tip axis set.');
+  });
+  upSel.addEventListener('change', () => {
+    setAutoLearn(false);
+    applyAlignment({ tip: alignment.tip, up: upSel.value }, 'Top axis set.');
+  });
+  $('#axis-reset').addEventListener('click', () => {
+    applyAlignment({ ...DEFAULT_ALIGNMENT }, 'Back to the default axes. Learning again from scratch.');
+    setAutoLearn(true);
+  });
+  $('#auto-align').checked = autoLearn;
+  showAutoStatus();
   showAlignment();
 
   return {
