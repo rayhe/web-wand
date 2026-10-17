@@ -8,6 +8,7 @@ Connect a **Harry Potter: Magic Caster Wand** to your browser over Web Bluetooth
 - **Grip buttons.** Shows each of the four touch buttons as you press it, and marks when all four are held ("casting"). The page reads the wand's grip sensitivity and leaves it alone unless you pick a setting. If the grip doesn't respond, choose **7 / 10**, the values the official app writes.
 - **Motion.** Combines the gyroscope and accelerometer into a live **3D model** of the wand (drag to look around), with the tip's path drawn in 3D and as an **auto-scaled 2D trace** while you hold the grip.
 - **Axis alignment.** Works out how the motion sensor sits inside the wand, so the model turns the way your wand does. It learns automatically while you cast: swinging finds the long axis, holding the wand straight up finds the tip, and level holds find the top. There's also a hands-free two-step capture, and you can pick the axes by hand.
+- **Spell guide.** 64 spell shapes drawn as vectors, each with a start dot and a direction arrow, plus search. Hover to watch one drawn, or pick one to practise: it appears as a guide under your traced path. The shape of each spell you cast shows next to its name.
 - **Lights and vibration.** Set the four light groups (tip, upper, lower, handle), buzz the wand, and play built-in effects such as Lumos and Incendio.
 - **Raw packets.** A log of every notification, for anyone exploring the protocol.
 - **Auto-connect.** Reconnects on its own when the wand wakes up, including across page reloads (see below).
@@ -102,6 +103,8 @@ node --test test/
 ```
 
 ## Credits
+
+The spell shapes were redrawn as vectors from the gesture list in the same project. The original pictures aren't included here. Ten spells the wand knows have no published shape yet.
 
 The protocol comes from community reverse-engineering, mainly [eigger/hass-magic-caster-wand](https://github.com/eigger/hass-magic-caster-wand) (MIT). Thank you!
 

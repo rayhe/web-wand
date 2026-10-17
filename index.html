@@ -35,7 +35,10 @@
   <main class="grid">
     <section class="card spell-card" aria-live="polite">
       <h2>Last spell</h2>
-      <div id="spell" class="spell empty">Cast a spell…</div>
+      <div class="spell-row">
+        <div id="spell" class="spell empty">Cast a spell…</div>
+        <div id="spell-shape" class="spell-shape" aria-hidden="true"></div>
+      </div>
       <p class="hint">Hold the wand by its grip, then draw the spell's shape. The wand recognizes the spell itself and reports its name.</p>
       <label class="check"><input id="react" type="checkbox" checked> Light up and buzz the wand when a spell is cast</label>
       <ol id="history" class="history"></ol>
@@ -119,6 +122,16 @@
         <div><span class="lbl">Samples</span><span id="rate" class="mono">0 /s</span></div>
       </div>
       <p class="hint">Hold all four grip buttons to trace a cast. Heading slowly drifts because the wand has no compass; press <em>Recenter</em> to point "ahead" again.</p>
+    </section>
+
+    <section class="card guide-card" id="guide-card">
+      <div class="row">
+        <h2>Spell guide</h2>
+        <input id="guide-search" type="search" placeholder="Find a spell" aria-label="Find a spell">
+      </div>
+      <p class="hint">Draw each shape in the air as you see it here, starting at the dot. Hover to watch it drawn; pick one to practise it over your traced path above.</p>
+      <div id="guide" class="guide"></div>
+      <p class="hint">Shapes redrawn from the community's reverse-engineered spell list. The wand decides what counts, so treat them as a guide.</p>
     </section>
 
     <section class="card">

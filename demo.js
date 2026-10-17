@@ -21,6 +21,33 @@ const CASTS = [
   { spell: 'expecto patronum', shape: (t) => [0.35 * t * Math.cos(t * 14), 0.35 * t * Math.sin(t * 14)] },
 ];
 
+/**
+ * Turn guide polylines (x right, y down, any units) into a demo cast shape:
+ * t in [0,1] -> [x, y] in radians, about 0.6 rad across, following the
+ * strokes at constant speed.
+ */
+export function castFromPolylines(spell, polylines) {
+  const pts = polylines.flat();
+  const xs = pts.map((p) => p.x), ys = pts.map((p) => p.y);
+  const cx = (Math.min(...xs) + Math.max(...xs)) / 2, cy = (Math.min(...ys) + Math.max(...ys)) / 2;
+  const k = 0.6 / Math.max(Math.max(...xs) - Math.min(...xs), Math.max(...ys) - Math.min(...ys), 1);
+  const lens = [0];
+  for (let i = 1; i < pts.length; i++) lens.push(lens[i - 1] + Math.hypot(pts[i].x - pts[i - 1].x, pts[i].y - pts[i - 1].y));
+  const total = lens[lens.length - 1] || 1;
+  return {
+    spell,
+    shape(t) {
+      const target = t * total;
+      let i = lens.findIndex((l) => l >= target);
+      if (i <= 0) i = 1;
+      const f = (target - lens[i - 1]) / ((lens[i] - lens[i - 1]) || 1);
+      const x = pts[i - 1].x + (pts[i].x - pts[i - 1].x) * f;
+      const y = pts[i - 1].y + (pts[i].y - pts[i - 1].y) * f;
+      return [(x - cx) * k, -(y - cy) * k];
+    },
+  };
+}
+
 const buttons = (mask) => [MSG.BUTTONS, mask];
 
 function spellPacket(name) {
@@ -46,7 +73,7 @@ function imuPacket(index, samples) {
  * Start the fake wand. `toRaw` converts body-frame vectors (X = tip, Z = top)
  * to the IMU's raw axes, so the data matches whatever alignment is in use.
  */
-export function startDemo(wand, { toRaw = (v) => v } = {}) {
+export function startDemo(wand, { toRaw = (v) => v, casts = CASTS } = {}) {
   let stopped = false;
   let index = 0;
   let elevation = 0.15; // radians, tip above level
@@ -115,7 +142,7 @@ export function startDemo(wand, { toRaw = (v) => v } = {}) {
     wand.inject(new Uint8Array([MSG.FIRMWARE_VERSION, 0, 3]));
     for (let n = 0; !stopped; n++) {
       await idle(1200);
-      if (!stopped) await cast(CASTS[n % CASTS.length]);
+      if (!stopped) await cast(casts[n % casts.length]);
     }
   })();
 

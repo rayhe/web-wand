@@ -1,7 +1,8 @@
 import { MagicCasterWand, Macro, LED } from './wand.js';
-import { startDemo } from './demo.js';
+import { startDemo, castFromPolylines } from './demo.js';
 import { setupMotion } from './motion.js';
 import { applyMatrix, transpose } from './orientation.js';
+import { setupGuide, shapeFor, renderShape, animate, sampleShape } from './guide.js';
 
 const $ = (sel) => document.querySelector(sel);
 const wand = new MagicCasterWand();
@@ -95,7 +96,15 @@ $('#demo').addEventListener('click', () => {
   wand.disconnect();
   motion.reset();
   // The demo speaks in body axes; convert to raw so the current alignment maps it back.
-  demo = startDemo(wand, { toRaw: (v) => applyMatrix(transpose(motion.matrix), v) });
+  // Cast real guide shapes where we have them.
+  const casts = ['lumos', 'incendio', 'wingardium_leviosa', 'expecto_patronum', 'alohomora', 'stupefy']
+    .map((key) => shapeFor(key))
+    .filter(Boolean)
+    .map((shape) => castFromPolylines(shape.name.toLowerCase(), sampleShape(shape, 8)));
+  demo = startDemo(wand, {
+    toRaw: (v) => applyMatrix(transpose(motion.matrix), v),
+    ...(casts.length ? { casts } : {}),
+  });
   $('#demo').textContent = 'Stop demo';
   setStatus('Demo mode', 'demo');
   $('#imu').checked = true;
@@ -187,6 +196,16 @@ wand.addEventListener('spell', (e) => {
   void el.offsetWidth; // restart the animation
   el.classList.add('cast');
 
+  const shape = shapeFor(name);
+  const holder = $('#spell-shape');
+  holder.replaceChildren();
+  if (shape) {
+    const svg = renderShape(shape);
+    holder.append(svg);
+    animate(svg);
+  }
+  guide.flash(name);
+
   const li = document.createElement('li');
   const t = document.createElement('time');
   t.textContent = new Date().toLocaleTimeString();
@@ -227,6 +246,18 @@ async function startMotion() {
   if (flowing) log('motion: samples arriving');
   else if (flowing === false && wand.imuStreaming) log('motion: no samples after 3 tries. Move the wand; if the counter stays at 0, untick and tick Stream motion.');
 }
+
+// ---------- Spell guide ----------
+
+const guide = setupGuide({
+  container: $('#guide'),
+  search: $('#guide-search'),
+  onPick(key) {
+    const shape = key && shapeFor(key);
+    motion.setGhost(shape ? { name: shape.name, polylines: sampleShape(shape) } : null);
+    if (shape) document.querySelector('.motion').scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+  },
+});
 
 // ---------- Lights / vibration ----------
 

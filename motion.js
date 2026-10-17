@@ -155,6 +155,42 @@ export function setupMotion({ wand, log, $ }) {
   const canvas = $('#trail');
   const ctx = canvas.getContext('2d');
   const view = { scale: 0, cx: 0, cy: 0, stroke: null };
+  let ghost = null; // { name, polylines } in guide coordinates (y down)
+
+  /** Draw the practice shape, fitted to the canvas, under the live trace. */
+  function drawGhost(w, h) {
+    const all = ghost.polylines.flat();
+    const b = bbox(all);
+    const k = Math.min((w * 0.8) / Math.max(b.w, 1), (h * 0.8) / Math.max(b.h, 1));
+    const at = (p) => [w / 2 + (p.x - b.cx) * k, h / 2 + (p.y - b.cy) * k];
+    ctx.save();
+    ctx.strokeStyle = css('--muted');
+    ctx.fillStyle = css('--muted');
+    ctx.globalAlpha = 0.55;
+    ctx.lineWidth = 6;
+    ctx.lineCap = ctx.lineJoin = 'round';
+    ctx.setLineDash([2, 10]);
+    for (const line of ghost.polylines) {
+      ctx.beginPath();
+      line.forEach((p, i) => { const [x, y] = at(p); i ? ctx.lineTo(x, y) : ctx.moveTo(x, y); });
+      ctx.stroke();
+    }
+    ctx.setLineDash([]);
+    for (const line of ghost.polylines) {
+      // Start dot and end arrow, so the direction is clear.
+      const [sx, sy] = at(line[0]);
+      ctx.beginPath(); ctx.arc(sx, sy, 6, 0, Math.PI * 2); ctx.fill();
+      const [ex, ey] = at(line[line.length - 1]);
+      const [px, py] = at(line[Math.max(0, line.length - 4)]);
+      const ang = Math.atan2(ey - py, ex - px);
+      ctx.beginPath();
+      ctx.moveTo(ex + Math.cos(ang) * 4, ey + Math.sin(ang) * 4);
+      ctx.lineTo(ex - Math.cos(ang - 0.5) * 14, ey - Math.sin(ang - 0.5) * 14);
+      ctx.lineTo(ex - Math.cos(ang + 0.5) * 14, ey - Math.sin(ang + 0.5) * 14);
+      ctx.closePath(); ctx.fill();
+    }
+    ctx.restore();
+  }
 
   function css(name) {
     return getComputedStyle(document.documentElement).getPropertyValue(name).trim();
@@ -171,14 +207,16 @@ export function setupMotion({ wand, log, $ }) {
     ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
     ctx.clearRect(0, 0, w, h);
 
+    if (ghost) drawGhost(w, h);
     const drawn = strokes.filter((s) => s.pts.length > 1);
     const latest = drawn[drawn.length - 1];
     if (!latest) {
       ctx.fillStyle = css('--muted');
       ctx.font = '14px system-ui, sans-serif';
       ctx.textAlign = 'center';
-      ctx.fillText(streaming() ? 'Hold all four grip buttons and draw' : 'Turn on Stream motion to trace', w / 2, h / 2);
-      $('#trail-caption').textContent = 'Tip path';
+      const hint = streaming() ? 'Hold all four grip buttons and draw' : 'Turn on Stream motion to trace';
+      ctx.fillText(ghost ? `${ghost.name}: ${hint.toLowerCase()}` : hint, w / 2, ghost ? h - 14 : h / 2);
+      $('#trail-caption').textContent = ghost ? `Tip path · practising ${ghost.name}` : 'Tip path';
       return;
     }
 
@@ -242,7 +280,7 @@ export function setupMotion({ wand, log, $ }) {
       ctx.fillStyle = css('--gold');
       ctx.beginPath(); ctx.arc(x, y, 5, 0, Math.PI * 2); ctx.fill();
     }
-    $('#trail-caption').textContent = `Tip path · auto-scaled · grid ${stepDeg}°`;
+    $('#trail-caption').textContent = `Tip path · auto-scaled · grid ${stepDeg}°${ghost ? ` · practising ${ghost.name}` : ''}`;
   }
   (function loop() { draw(); requestAnimationFrame(loop); })();
 
@@ -427,6 +465,10 @@ export function setupMotion({ wand, log, $ }) {
       view3d?.setTipGlow(all);
       if (all && !casting) stroke = null; // a new cast starts a new stroke
       casting = all;
+    },
+    /** Show a spell shape to trace over, or null to clear it. */
+    setGhost(g) {
+      ghost = g;
     },
     /** Raw -> body matrix currently in use (for the demo to generate matching data). */
     get matrix() { return matrix; },
